@@ -27,7 +27,7 @@ The autograder automatically reports compilation issues to students. It also inc
 
   
 
-Check out the live demo here: [https://cise.ufl.edu/~p.gupta/gradescope-autograder-generator/]([https://cise.ufl.edu/~p.gupta/autograder-generator/](https://cise.ufl.edu/~p.gupta/gradescope-autograder-generator/))
+Check out the live demo here: [https://cise.ufl.edu/~p.gupta/gradescope-autograder-generator/](https://cise.ufl.edu/~p.gupta/gradescope-autograder-generator/)
 
   
 
