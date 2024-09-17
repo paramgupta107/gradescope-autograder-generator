@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <!-- Meta Description -->
+    <meta name="description" content="A tool that automatically generates autograders for programming assignments on Gradescope, supporting C++17, Java, and Python 3.">
+    <!-- Meta Keywords -->
+    <meta name="keywords" content="autograder, Gradescope, programming assignments, C++17, Java, Python 3, code submission, automated grading">
+    <!-- Meta Author -->
+    <meta name="author" content="Param Gupta">
+    <!-- Meta Viewport -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GradeScope Autograder Generator</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+
+    <style>
+        html, body {
+            height: 100%;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+        .content {
+            flex: 1;
+        }
+        .delete-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        .required::after {
+            content: " *";
+            color: red;
+        }
+        .info-icon {
+            margin-left: 5px;
+            color: #007bff;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container my-5">
+    <h1 class="mb-4">GradeScope Autograder Generator</h1>
+    <hr>
+    <p>This tool automatically generates autograders for programming assignments on Gradescope, supporting submissions in C++17, Java, and Python 3. Instructors can require submissions in a specific programming language or allow students to choose among the supported languages. The tool allows multiple problems to be included in the same assignment.
+    </p>
+    <p>
+        For each problem, students submit a .cpp, .java, or .py file with the required filename. The code must read input from standard input (stdin) and output the result to standard output (stdout). C++ and Java submissions must contain a main function, and Java submissions must implement the solution in a class with the specified name.
+    </p>
+    <p>   
+        The autograder automatically reports compilation issues to students. It also includes a timeout for test cases to handle infinite loops or excessively long execution times.
+    </p>
+    <hr>
+    <form id="autograder-form" class="needs-validation" novalidate>
+        <div id="programs-container">
+            <!-- Programs will be added here -->
+        </div>
+
+        <button id="add-program-btn" type="button" class="btn btn-primary mb-3">Add Problem</button>
+
+        <br>
+
+        <button id="generate-json-btn" class="btn btn-success" type="button">Generate Autograder</button>
+    </form>
+</div>
+<footer class="footer mt-auto py-3 bg-light">
+    <div class="container text-center">
+      <span class="text-muted">
+        Created by Param Gupta - 
+        <a href="mailto:p.gupta@ufl.edu">p.gupta@ufl.edu</a>
+      </span>
+    </div>
+  </footer>
+
+<!-- Bootstrap JS and dependencies -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js"></script>
+
+<script>
+    document.getElementById('add-program-btn').addEventListener('click', function() {
+        addProgram();
+        validateForm();
+    });
+    document.getElementById('generate-json-btn').addEventListener('click', generateJSON);
+
+    let programCounter = 0;
+
+    function addProgram() {
+        programCounter++;
+        const programsContainer = document.getElementById('programs-container');
+
+        const programDiv = document.createElement('div');
+        programDiv.className = 'program border rounded p-3 mb-4 position-relative';
+        programDiv.id = `program-${programCounter}`;
+
+        // Delete Program Button
+        const deleteProgramBtn = document.createElement('button');
+        deleteProgramBtn.className = 'delete-btn btn btn-danger btn-sm';
+        deleteProgramBtn.textContent = 'Delete Problem';
+        deleteProgramBtn.type = 'button';
+        deleteProgramBtn.addEventListener('click', function() {
+            programsContainer.removeChild(programDiv);
+            validateForm();
+        });
+        programDiv.appendChild(deleteProgramBtn);
+
+        // Program Name
+        const nameLabel = document.createElement('label');
+        nameLabel.className = 'required';
+        nameLabel.textContent = 'Program Name:';
+        programDiv.appendChild(nameLabel);
+
+        // Info Icon
+        const nameInfoIcon = document.createElement('i');
+        nameInfoIcon.className = 'bi bi-info-circle info-icon';
+        nameInfoIcon.setAttribute('data-toggle', 'tooltip');
+        nameInfoIcon.setAttribute('data-placement', 'top');
+        nameInfoIcon.setAttribute('title', 'Name of the executable that will be generated for the problem (one word, no spaces).');
+        nameLabel.appendChild(nameInfoIcon);
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.name = 'program-name';
+        nameInput.className = 'form-control';
+        nameInput.required = true;
+        nameInput.addEventListener('input', validateForm);
+        programDiv.appendChild(nameInput);
+
+        const nameFeedback = document.createElement('div');
+        nameFeedback.className = 'invalid-feedback name-feedback';
+        nameFeedback.textContent = 'Please enter a valid program name (one word, no spaces).';
+        programDiv.appendChild(nameFeedback);
+
+        // Expected filenames
+        // For C++
+        const cppLabel = document.createElement('label');
+        cppLabel.textContent = 'C++ Filename (.cpp):';
+        programDiv.appendChild(cppLabel);
+
+        // Info Icon
+        const cppInfoIcon = document.createElement('i');
+        cppInfoIcon.className = 'bi bi-info-circle info-icon';
+        cppInfoIcon.setAttribute('data-toggle', 'tooltip');
+        cppInfoIcon.setAttribute('data-placement', 'top');
+        cppInfoIcon.setAttribute('title', 'The filename of the .cpp file that the student will submit as a solution to this problem');
+        cppLabel.appendChild(cppInfoIcon);
+
+        const cppInput = document.createElement('input');
+        cppInput.type = 'text';
+        cppInput.name = 'cpp-filename';
+        cppInput.className = 'form-control';
+        cppInput.addEventListener('input', validateForm);
+        programDiv.appendChild(cppInput);
+
+        const cppFeedback = document.createElement('div');
+        cppFeedback.className = 'invalid-feedback cpp-feedback';
+        cppFeedback.textContent = '';
+        programDiv.appendChild(cppFeedback);
+
+        // For Java
+        const javaLabel = document.createElement('label');
+        javaLabel.textContent = 'Java Filename (.java):';
+        programDiv.appendChild(javaLabel);
+
+        // Info Icon
+        const javaInfoIcon = document.createElement('i');
+        javaInfoIcon.className = 'bi bi-info-circle info-icon';
+        javaInfoIcon.setAttribute('data-toggle', 'tooltip');
+        javaInfoIcon.setAttribute('data-placement', 'top');
+        javaInfoIcon.setAttribute('title', 'The filename of the .java file that the student will submit as a solution to this problem. Must be ProgramName.java');
+        javaLabel.appendChild(javaInfoIcon);
+
+        const javaInput = document.createElement('input');
+        javaInput.type = 'text';
+        javaInput.name = 'java-filename';
+        javaInput.className = 'form-control';
+        javaInput.addEventListener('input', validateForm);
+        programDiv.appendChild(javaInput);
+
+        const javaFeedback = document.createElement('div');
+        javaFeedback.className = 'invalid-feedback java-feedback';
+        javaFeedback.textContent = '';
+        programDiv.appendChild(javaFeedback);
+
+        // For Python
+        const pythonLabel = document.createElement('label');
+        pythonLabel.textContent = 'Python Filename (.py):';
+        programDiv.appendChild(pythonLabel);
+
+        // Info Icon
+        const pythonInfoIcon = document.createElement('i');
+        pythonInfoIcon.className = 'bi bi-info-circle info-icon';
+        pythonInfoIcon.setAttribute('data-toggle', 'tooltip');
+        pythonInfoIcon.setAttribute('data-placement', 'top');
+        pythonInfoIcon.setAttribute('title', 'The filename of the .py file that the student will submit as a solution to this problem');
+        pythonLabel.appendChild(pythonInfoIcon);
+
+        const pythonInput = document.createElement('input');
+        pythonInput.type = 'text';
+        pythonInput.name = 'python-filename';
+        pythonInput.className = 'form-control';
+        pythonInput.addEventListener('input', validateForm);
+        programDiv.appendChild(pythonInput);
+
+        const pythonFeedback = document.createElement('div');
+        pythonFeedback.className = 'invalid-feedback python-feedback';
+        pythonFeedback.textContent = '';
+        programDiv.appendChild(pythonFeedback);
+
+        // Error message for no filenames
+        const filenameFeedback = document.createElement('div');
+        filenameFeedback.className = 'invalid-feedback filename-feedback';
+        filenameFeedback.textContent = 'Please provide at least one filename.';
+        filenameFeedback.style.display = 'none'; // Hidden initially
+        programDiv.appendChild(filenameFeedback);
+
+        // Test cases container
+        const testcasesContainer = document.createElement('div');
+        testcasesContainer.className = 'testcases-container mt-3';
+        programDiv.appendChild(testcasesContainer);
+
+        // Error message for no test cases
+        const testCaseFeedback = document.createElement('div');
+        testCaseFeedback.className = 'invalid-feedback test-case-feedback';
+        testCaseFeedback.textContent = 'Please add at least one test case.';
+        testCaseFeedback.style.display = 'none'; // Hidden initially
+        testcasesContainer.appendChild(testCaseFeedback);
+
+        // Add Test Case Button
+        const addTestcaseBtn = document.createElement('button');
+        addTestcaseBtn.textContent = 'Add Test Case';
+        addTestcaseBtn.className = 'btn btn-secondary mt-2';
+        addTestcaseBtn.type = 'button';
+        addTestcaseBtn.addEventListener('click', function() {
+            addTestCase(testcasesContainer);
+            validateForm();
+        });
+        programDiv.appendChild(addTestcaseBtn);
+
+        programsContainer.appendChild(programDiv);
+
+        // Initialize tooltips for new elements
+        $('[data-toggle="tooltip"]').tooltip();
+    }
+
+    function addTestCase(testcasesContainer) {
+        const testCaseFeedback = testcasesContainer.querySelector('.test-case-feedback');
+
+        const testcaseDiv = document.createElement('div');
+        testcaseDiv.className = 'testcase border rounded p-3 mt-3 position-relative';
+
+        // Delete Test Case Button
+        const deleteTestcaseBtn = document.createElement('button');
+        deleteTestcaseBtn.className = 'delete-btn btn btn-danger btn-sm';
+        deleteTestcaseBtn.textContent = 'Delete Test Case';
+        deleteTestcaseBtn.type = 'button';
+        deleteTestcaseBtn.addEventListener('click', function() {
+            testcaseDiv.parentNode.removeChild(testcaseDiv);
+            validateForm();
+        });
+        testcaseDiv.appendChild(deleteTestcaseBtn);
+
+        // Input
+        const inputLabel = document.createElement('label');
+        inputLabel.className = 'required';
+        inputLabel.textContent = 'Input:';
+        testcaseDiv.appendChild(inputLabel);
+
+        // Info Icon
+        const inputInfoIcon = document.createElement('i');
+        inputInfoIcon.className = 'bi bi-info-circle info-icon';
+        inputInfoIcon.setAttribute('data-toggle', 'tooltip');
+        inputInfoIcon.setAttribute('data-placement', 'top');
+        inputInfoIcon.setAttribute('title', 'The input that will be passed through stdin to the executable for the problem.');
+        inputLabel.appendChild(inputInfoIcon);
+
+        const inputTextarea = document.createElement('textarea');
+        inputTextarea.name = 'testcase-input';
+        inputTextarea.className = 'form-control';
+        inputTextarea.required = true;
+        inputTextarea.addEventListener('input', validateForm);
+        testcaseDiv.appendChild(inputTextarea);
+
+        const inputFeedback = document.createElement('div');
+        inputFeedback.className = 'invalid-feedback';
+        inputFeedback.textContent = 'Please enter the input.';
+        testcaseDiv.appendChild(inputFeedback);
+
+        // Expected Output
+        const outputLabel = document.createElement('label');
+        outputLabel.className = 'required';
+        outputLabel.textContent = 'Expected Output:';
+        testcaseDiv.appendChild(outputLabel);
+
+        // Info Icon
+        const outputInfoIcon = document.createElement('i');
+        outputInfoIcon.className = 'bi bi-info-circle info-icon';
+        outputInfoIcon.setAttribute('data-toggle', 'tooltip');
+        outputInfoIcon.setAttribute('data-placement', 'top');
+        outputInfoIcon.setAttribute('title', 'The expected output that the executable should ouput to stdout for the given input');
+        outputLabel.appendChild(outputInfoIcon);
+
+        const outputTextarea = document.createElement('textarea');
+        outputTextarea.name = 'testcase-output';
+        outputTextarea.className = 'form-control';
+        outputTextarea.required = true;
+        outputTextarea.addEventListener('input', validateForm);
+        testcaseDiv.appendChild(outputTextarea);
+
+        const outputFeedback = document.createElement('div');
+        outputFeedback.className = 'invalid-feedback';
+        outputFeedback.textContent = 'Please enter the expected output.';
+        testcaseDiv.appendChild(outputFeedback);
+
+        // Points
+        const pointsLabel = document.createElement('label');
+        pointsLabel.className = 'required';
+        pointsLabel.textContent = 'Points:';
+        testcaseDiv.appendChild(pointsLabel);
+
+        // Info Icon
+        const pointsInfoIcon = document.createElement('i');
+        pointsInfoIcon.className = 'bi bi-info-circle info-icon';
+        pointsInfoIcon.setAttribute('data-toggle', 'tooltip');
+        pointsInfoIcon.setAttribute('data-placement', 'top');
+        pointsInfoIcon.setAttribute('title', 'The number of points that this test case is worth');
+        pointsLabel.appendChild(pointsInfoIcon);
+
+        const pointsInput = document.createElement('input');
+        pointsInput.type = 'number';
+        pointsInput.name = 'testcase-points';
+        pointsInput.className = 'form-control';
+        pointsInput.required = true;
+        pointsInput.addEventListener('input', validateForm);
+        testcaseDiv.appendChild(pointsInput);
+
+        const pointsFeedback = document.createElement('div');
+        pointsFeedback.className = 'invalid-feedback';
+        pointsFeedback.textContent = 'Please enter the points.';
+        testcaseDiv.appendChild(pointsFeedback);
+
+        // Visibility
+        const visibilityDiv = document.createElement('div');
+        visibilityDiv.className = 'form-check mt-2';
+        testcaseDiv.appendChild(visibilityDiv);
+
+        const visibilityCheckbox = document.createElement('input');
+        visibilityCheckbox.type = 'checkbox';
+        visibilityCheckbox.name = 'testcase-is_visible';
+        visibilityCheckbox.className = 'form-check-input';
+        visibilityCheckbox.id = `visibility-${programCounter}-${testcasesContainer.childElementCount}`;
+        visibilityDiv.appendChild(visibilityCheckbox);
+
+        const visibilityLabel = document.createElement('label');
+        visibilityLabel.textContent = 'Is Visible';
+        visibilityLabel.className = 'form-check-label';
+        visibilityLabel.setAttribute('for', visibilityCheckbox.id);
+        visibilityDiv.appendChild(visibilityLabel);
+
+        // Info Icon
+        const visibilityInfoIcon = document.createElement('i');
+        visibilityInfoIcon.className = 'bi bi-info-circle info-icon';
+        visibilityInfoIcon.setAttribute('data-toggle', 'tooltip');
+        visibilityInfoIcon.setAttribute('data-placement', 'top');
+        visibilityInfoIcon.setAttribute('title', 'Check to make the results of the test case immediately visible to students. Otherwise the result will be released after publishing grades. Used for demo test cases so that students can verify output format.');
+        visibilityLabel.appendChild(visibilityInfoIcon);
+
+        testcasesContainer.appendChild(testcaseDiv);
+
+        // Hide the test case feedback since at least one test case is now present
+        testCaseFeedback.style.display = 'none';
+
+        validateForm();
+
+        // Initialize tooltips for new elements
+        $('[data-toggle="tooltip"]').tooltip();
+    }
+
+    function validateForm() {
+        const programsContainer = document.getElementById('programs-container');
+        const programDivs = programsContainer.getElementsByClassName('program');
+
+        let cppCount = 0;
+        let javaCount = 0;
+        let pythonCount = 0;
+
+        const totalPrograms = programDivs.length;
+
+        let formIsValid = true;
+        let noProblems = false;
+
+        // Check if at least one problem is added
+        if (totalPrograms === 0) {
+            formIsValid = false;
+            noProblems = true;
+        }
+
+        for (let programDiv of programDivs) {
+            const programNameInput = programDiv.querySelector('input[name="program-name"]');
+            const programName = programNameInput.value.trim();
+            const nameFeedback = programDiv.querySelector('.name-feedback');
+
+            // Validate program name
+            if (/\s/.test(programName) || !programName) {
+                programNameInput.classList.add('is-invalid');
+                nameFeedback.textContent = 'Please enter a valid program name (one word, no spaces).';
+                formIsValid = false;
+            } else {
+                programNameInput.classList.remove('is-invalid');
+                nameFeedback.textContent = '';
+            }
+
+            // Filenames
+            const cppInput = programDiv.querySelector('input[name="cpp-filename"]');
+            const javaInput = programDiv.querySelector('input[name="java-filename"]');
+            const pythonInput = programDiv.querySelector('input[name="python-filename"]');
+
+            const cppFilename = cppInput.value.trim();
+            const javaFilename = javaInput.value.trim();
+            const pythonFilename = pythonInput.value.trim();
+
+            const cppFeedback = programDiv.querySelector('.cpp-feedback');
+            const javaFeedback = programDiv.querySelector('.java-feedback');
+            const pythonFeedback = programDiv.querySelector('.python-feedback');
+            const filenameFeedback = programDiv.querySelector('.filename-feedback');
+
+            let filenamesProvided = false;
+
+            // Validate filenames
+            if (cppFilename) {
+                filenamesProvided = true;
+                if (!cppFilename.endsWith('.cpp')) {
+                    cppInput.classList.add('is-invalid');
+                    cppFeedback.textContent = 'C++ filename must end with .cpp.';
+                    formIsValid = false;
+                } else {
+                    cppInput.classList.remove('is-invalid');
+                    cppFeedback.textContent = '';
+                }
+                cppCount++;
+            } else {
+                cppInput.classList.remove('is-invalid');
+                cppFeedback.textContent = '';
+            }
+
+            if (javaFilename) {
+                filenamesProvided = true;
+                if (!javaFilename.endsWith('.java')) {
+                    javaInput.classList.add('is-invalid');
+                    javaFeedback.textContent = 'Java filename must end with .java.';
+                    formIsValid = false;
+                } else if (javaFilename !== `${programName}.java`) {
+                    javaInput.classList.add('is-invalid');
+                    javaFeedback.textContent = 'Java filename must be ProgramName.java.';
+                    formIsValid = false;
+                } else {
+                    javaInput.classList.remove('is-invalid');
+                    javaFeedback.textContent = '';
+                }
+                javaCount++;
+            } else {
+                javaInput.classList.remove('is-invalid');
+                javaFeedback.textContent = '';
+            }
+
+            if (pythonFilename) {
+                filenamesProvided = true;
+                if (!pythonFilename.endsWith('.py')) {
+                    pythonInput.classList.add('is-invalid');
+                    pythonFeedback.textContent = 'Python filename must end with .py.';
+                    formIsValid = false;
+                } else {
+                    pythonInput.classList.remove('is-invalid');
+                    pythonFeedback.textContent = '';
+                }
+                pythonCount++;
+            } else {
+                pythonInput.classList.remove('is-invalid');
+                pythonFeedback.textContent = '';
+            }
+
+            // Check for at least one filename
+            if (!filenamesProvided) {
+                filenameFeedback.style.display = 'block';
+                formIsValid = false;
+            } else {
+                filenameFeedback.style.display = 'none';
+            }
+
+            // Validate test cases
+            const testcasesContainer = programDiv.querySelector('.testcases-container');
+            const testcaseDivs = testcasesContainer.getElementsByClassName('testcase');
+            const testCaseFeedback = testcasesContainer.querySelector('.test-case-feedback');
+
+            if (testcaseDivs.length === 0) {
+                testCaseFeedback.style.display = 'block';
+                formIsValid = false;
+            } else {
+                testCaseFeedback.style.display = 'none';
+            }
+
+            // Validate each test case
+            for (let testcaseDiv of testcaseDivs) {
+                const inputTextarea = testcaseDiv.querySelector('textarea[name="testcase-input"]');
+                const outputTextarea = testcaseDiv.querySelector('textarea[name="testcase-output"]');
+                const pointsInput = testcaseDiv.querySelector('input[name="testcase-points"]');
+
+                if (!inputTextarea.value.trim()) {
+                    inputTextarea.classList.add('is-invalid');
+                    formIsValid = false;
+                } else {
+                    inputTextarea.classList.remove('is-invalid');
+                }
+
+                if (!outputTextarea.value.trim()) {
+                    outputTextarea.classList.add('is-invalid');
+                    formIsValid = false;
+                } else {
+                    outputTextarea.classList.remove('is-invalid');
+                }
+
+                if (!pointsInput.value.trim()) {
+                    pointsInput.classList.add('is-invalid');
+                    formIsValid = false;
+                } else {
+                    pointsInput.classList.remove('is-invalid');
+                }
+            }
+        }
+
+        // Enforce that for each language, either all programs have filenames or none do
+        if (cppCount > 0 && cppCount !== totalPrograms) {
+            formIsValid = false;
+            for (let programDiv of programDivs) {
+                const cppInput = programDiv.querySelector('input[name="cpp-filename"]');
+                const cppFeedback = programDiv.querySelector('.cpp-feedback');
+                if (!cppInput.value.trim()) {
+                    cppInput.classList.add('is-invalid');
+                    cppFeedback.textContent = 'All programs must have a C++ filename or none should.';
+                }
+            }
+        }
+
+        if (javaCount > 0 && javaCount !== totalPrograms) {
+            formIsValid = false;
+            for (let programDiv of programDivs) {
+                const javaInput = programDiv.querySelector('input[name="java-filename"]');
+                const javaFeedback = programDiv.querySelector('.java-feedback');
+                if (!javaInput.value.trim()) {
+                    javaInput.classList.add('is-invalid');
+                    javaFeedback.textContent = 'All programs must have a Java filename or none should.';
+                }
+            }
+        }
+
+        if (pythonCount > 0 && pythonCount !== totalPrograms) {
+            formIsValid = false;
+            for (let programDiv of programDivs) {
+                const pythonInput = programDiv.querySelector('input[name="python-filename"]');
+                const pythonFeedback = programDiv.querySelector('.python-feedback');
+                if (!pythonInput.value.trim()) {
+                    pythonInput.classList.add('is-invalid');
+                    pythonFeedback.textContent = 'All programs must have a Python filename or none should.';
+                }
+            }
+        }
+
+        // Return the validity state and whether there are no problems
+        return { formIsValid, noProblems };
+    }
+
+    function generateJSON() {
+        const { formIsValid, noProblems } = validateForm();
+
+        if (!formIsValid) {
+            if (noProblems) {
+                alert('Please add at least one problem before generating the JSON.');
+            } else {
+                alert('There are errors in the form. Please correct them before generating the JSON.');
+            }
+
+            // Focus on the first invalid element
+            const invalidElements = document.querySelectorAll('.is-invalid');
+            if (invalidElements.length > 0) {
+                invalidElements[0].focus();
+            }
+            return;
+        }
+
+        const programsContainer = document.getElementById('programs-container');
+        const programDivs = programsContainer.getElementsByClassName('program');
+
+        const cpp_filenames = {};
+        const java_filenames = {};
+        const python_filenames = {};
+        const program_testcases = {};
+
+        for (let programDiv of programDivs) {
+            const programNameInput = programDiv.querySelector('input[name="program-name"]');
+            const programName = programNameInput.value.trim();
+
+            // Expected filenames
+            const cppInput = programDiv.querySelector('input[name="cpp-filename"]');
+            const javaInput = programDiv.querySelector('input[name="java-filename"]');
+            const pythonInput = programDiv.querySelector('input[name="python-filename"]');
+
+            const cppFilename = cppInput.value.trim();
+            const javaFilename = javaInput.value.trim();
+            const pythonFilename = pythonInput.value.trim();
+
+            if (cppFilename) {
+                cpp_filenames[programName] = cppFilename;
+            }
+
+            if (javaFilename) {
+                java_filenames[programName] = javaFilename;
+            }
+
+            if (pythonFilename) {
+                python_filenames[programName] = pythonFilename;
+            }
+
+            // Test cases
+            const testcasesContainer = programDiv.querySelector('.testcases-container');
+            const testcaseDivs = testcasesContainer.getElementsByClassName('testcase');
+
+            const testcases = [];
+
+            for (let testcaseDiv of testcaseDivs) {
+                const inputTextarea = testcaseDiv.querySelector('textarea[name="testcase-input"]');
+                const outputTextarea = testcaseDiv.querySelector('textarea[name="testcase-output"]');
+                const pointsInput = testcaseDiv.querySelector('input[name="testcase-points"]');
+                const isVisible = testcaseDiv.querySelector('input[name="testcase-is_visible"]').checked;
+
+                const input = inputTextarea.value;
+                const output = outputTextarea.value;
+                const points = pointsInput.value;
+
+                testcases.push({
+                    input: input,
+                    output: output,
+                    points: parseFloat(points),
+                    is_visible: isVisible
+                });
+            }
+
+            program_testcases[programName] = testcases;
+        }
+
+        const result = {
+            program_testcases: program_testcases
+        };
+
+        if (Object.keys(cpp_filenames).length > 0) {
+            result.cpp_filenames = cpp_filenames;
+        }
+
+        if (Object.keys(java_filenames).length > 0) {
+            result.java_filenames = java_filenames;
+        }
+
+        if (Object.keys(python_filenames).length > 0) {
+            result.python_filenames = python_filenames;
+        }
+
+        const jsonString = JSON.stringify(result, null, 4);
+
+        // download autograder zip
+        downloadAutograderZip(jsonString);
+    }
+
+    function downloadAutograderZip(jsonString) {
+        var zip = new JSZip();
+
+        fetch('run_autograder')
+        .then(response => response.text())
+        .then(textA => {
+            zip.file('run_autograder', textA);
+            return fetch('setup.sh');
+        })
+        .then(response => response.text())
+        .then(textB => {
+            zip.file('setup.sh', textB);
+            zip.file('tests.json', jsonString);
+            return zip.generateAsync({type:"blob"});
+        })
+        .then(function(content) {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(content);
+            a.download = 'autograder.zip';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        })
+        .catch(function(error) {
+            console.error('Error:', error);
+        });
+    }
+
+    function showJSONModal(jsonString) {
+        // Create modal elements
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'jsonModal';
+        modal.tabIndex = -1;
+        modal.role = 'dialog';
+
+        const modalDialog = document.createElement('div');
+        modalDialog.className = 'modal-dialog modal-lg';
+        modalDialog.role = 'document';
+        modal.appendChild(modalDialog);
+
+        const modalContent = document.createElement('div');
+        modalContent.className = 'modal-content';
+        modalDialog.appendChild(modalContent);
+
+        const modalHeader = document.createElement('div');
+        modalHeader.className = 'modal-header';
+        modalContent.appendChild(modalHeader);
+
+        const modalTitle = document.createElement('h5');
+        modalTitle.className = 'modal-title';
+        modalTitle.textContent = 'Generated JSON';
+        modalHeader.appendChild(modalTitle);
+
+        const modalCloseBtn = document.createElement('button');
+        modalCloseBtn.type = 'button';
+        modalCloseBtn.className = 'close';
+        modalCloseBtn.dataset.dismiss = 'modal';
+        modalCloseBtn.ariaLabel = 'Close';
+        modalHeader.appendChild(modalCloseBtn);
+
+        const modalCloseSpan = document.createElement('span');
+        modalCloseSpan.ariaHidden = 'true';
+        modalCloseSpan.innerHTML = '&times;';
+        modalCloseBtn.appendChild(modalCloseSpan);
+
+        const modalBody = document.createElement('div');
+        modalBody.className = 'modal-body';
+        modalContent.appendChild(modalBody);
+
+        const pre = document.createElement('pre');
+        pre.textContent = jsonString;
+        modalBody.appendChild(pre);
+
+        const modalFooter = document.createElement('div');
+        modalFooter.className = 'modal-footer';
+        modalContent.appendChild(modalFooter);
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'btn btn-secondary';
+        closeButton.dataset.dismiss = 'modal';
+        closeButton.textContent = 'Close';
+        modalFooter.appendChild(closeButton);
+
+        document.body.appendChild(modal);
+
+        // Show the modal
+        $('#jsonModal').modal('show');
+
+        // Remove the modal from DOM after it's hidden
+        $('#jsonModal').on('hidden.bs.modal', function () {
+            modal.parentNode.removeChild(modal);
+        });
+    }
+
+    // Initialize all tooltips on page load
+    $(function () {
+        $('[data-toggle="tooltip"]').tooltip();
+    });
+</script>
+
+</body>
+</html>

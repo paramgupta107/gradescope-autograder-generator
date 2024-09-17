@@ -1,0 +1,118 @@
+#!/bin/python3
+
+import json
+import subprocess
+import os
+
+results = {
+  "tests":
+    [
+    ]
+}
+
+submission_dir = "/autograder/submission"
+
+def compile_program(program_name):
+    cpp_name = tests["cpp_filenames"][program_name] if "cpp_filenames" in tests else ""
+    java_name = tests["java_filenames"][program_name] if "java_filenames" in tests else ""
+    python_name = tests["python_filenames"][program_name] if "python_filenames" in tests else ""
+    if cpp_name in os.listdir(submission_dir):
+        print(f"Compiling C++ program {cpp_name}")
+        # Compile cpp program with subprocess.run()
+        try:
+            subprocess.run(["g++", "-std=gnu++17", os.path.join(submission_dir, cpp_name), "-o", program_name], check=True, capture_output=True)
+            return True, "cpp", ""
+        except subprocess.CalledProcessError as e:
+            print(f"Error: {e}")
+            return False, "cpp", e.stderr.decode("utf-8")
+    elif java_name in os.listdir(submission_dir):
+        print(f"Compiling Java program {java_name}")
+        # Compile java program with subprocess.run()
+        try:
+            subprocess.run(["javac", os.path.join(submission_dir, java_name)], check=True, capture_output=True)
+            return True, "java", ""
+        except subprocess.CalledProcessError as e:
+            print(f"Error: {e}")
+            return False, "java", e.stderr.decode("utf-8")
+    elif python_name in os.listdir(submission_dir):
+        print(f"No need to compile python program {python_name}")
+        return True, "python", ""
+    else:
+        print(f"No program to compile for {program_name}")
+        return False, "", "Could not find program to run"
+
+def run_test_case(program_name, program_type, input):
+    if program_type == "cpp":
+        try:
+            output = subprocess.run([f"./{program_name}"], input=input, text=True, capture_output=True, timeout=5, check=True)
+            print("output: ", output)
+            return True, output.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            print(f"Error: {e}")
+            return False, e.stderr
+        except subprocess.TimeoutExpired as e:
+            print(f"Error: {e}")
+            return False, "Submission timed out"
+    elif program_type == "java":
+        try:
+            # Java outputs .class file to the same directory as the .java file
+            output = subprocess.run(["java", "-cp", submission_dir, program_name], input=input, text=True, capture_output=True, timeout=5, check=True)
+            print("output: ", output)
+            return True, output.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            print(f"Error: {e}")
+            return False, e.stderr
+        except subprocess.TimeoutExpired as e:
+            print(f"Error: {e}")
+            return False, "Submission timed out"
+    elif program_type == "python":
+        try:
+            output = subprocess.run(["python3", os.path.join(submission_dir, tests["python_filenames"][program_name])], input=input, text=True, capture_output=True, timeout=5, check=True)
+            print("output: ", output)
+            return True, output.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            print(f"Error: {e}")
+            return False, e.stderr
+        except subprocess.TimeoutExpired as e:
+            print(f"Error: {e}")
+            return False, "Submission timed out"
+    else:
+        print(f"Unknown program type {program_type}")
+        return False, "Error running test case"
+    
+with open('/autograder/source/tests.json') as json_data:
+    tests = json.load(json_data)
+
+programs_tests = tests['program_testcases']
+
+for program_name in programs_tests:
+    compiled, program_type, error_message = compile_program(program_name)
+    for test_case in programs_tests[program_name]:
+        result = {"visibility": "visible" if ("is_visible" in test_case and test_case["is_visible"]) else "after_published",
+                  "max_score": test_case["points"],}
+        if compiled:
+            input = test_case["input"]
+            expected_output = test_case["output"].strip()
+            success, output = run_test_case(program_name, program_type, input)
+            if success:
+                if output == expected_output:
+                    result["status"] = "passed"
+                    result["score"] = test_case["points"]
+                    result["output"] = "Test passed"
+                else:
+                    result["status"] = "failed"
+                    result["score"] = 0
+                    result["output"] = f"Test failed with input-\n {input}\nExpected:\n{expected_output}\nbut got:\n{output}"
+            else:
+                result["status"] = "failed"
+                result["score"] = 0
+                result["output"] = f"Error running test case.\n {output}"
+        else:
+            result["status"] = "failed"
+            result["score"] = 0
+            result["output"] = f"Error compiling program {program_name}.\n {error_message}"
+        results["tests"].append(result)
+
+# save to results/results.json
+with open('results/results.json', 'w') as f:
+    json.dump(results, f)
